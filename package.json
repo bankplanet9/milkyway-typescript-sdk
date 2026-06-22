@@ -1,0 +1,61 @@
+{
+  "name": "@bankplanet9/milkyway-payments",
+  "version": "0.0.0-development",
+  "description": "Official TypeScript client for the MilkyWay Payments API (/payments/v1) — partner-facing cross-bank payments.",
+  "keywords": [
+    "milkyway",
+    "payments",
+    "planet9",
+    "fintech",
+    "settlement",
+    "keycloak"
+  ],
+  "license": "MIT",
+  "author": "Planet9",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bankplanet9/milkyway-typescript-sdk.git"
+  },
+  "homepage": "https://github.com/bankplanet9/milkyway-typescript-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/bankplanet9/milkyway-typescript-sdk/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "decimal.js": "^10.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^20.11.0",
+    "eslint": "^9.18.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0",
+    "vitest": "^2.1.8"
+  }
+}
