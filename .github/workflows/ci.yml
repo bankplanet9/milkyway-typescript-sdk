@@ -37,17 +37,14 @@ jobs:
         run: npm run build
 
   release:
-    # Auto-version + publish on every push to main. semantic-release analyses the
-    # conventional commits, computes the next version, writes it into package.json,
-    # builds, and publishes to npm with provenance (OIDC — no stored token), then
-    # cuts a GitHub release + tag. No releasable commits → no release.
-    #
-    # Guarded: only runs once npm Trusted Publishing is set up, signalled by the
-    # repo variable PUBLISH_ENABLED == 'true'. Until then, pushes to main build +
-    # test but skip publishing, so the workflow never fails on a missing registry
-    # configuration.
+    # Auto-version on every push to main: semantic-release analyses the conventional
+    # commits, computes the next version, writes it into package.json, builds, cuts a
+    # GitHub release + tag — and publishes to npm with provenance (OIDC, no stored
+    # token) only when PUBLISH_ENABLED == 'true' (gated inside publishCmd). So
+    # releases/tags happen immediately while npm publishing waits until Trusted
+    # Publishing is configured. No releasable commits → no release.
     needs: build-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PUBLISH_ENABLED == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write # create git tags + GitHub releases
@@ -73,6 +70,9 @@ jobs:
         run: npx --yes -p semantic-release -p @semantic-release/exec semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Gates the npm publish step inside publishCmd. Set the repo variable
+          # PUBLISH_ENABLED=true once npm Trusted Publishing is configured.
+          PUBLISH_ENABLED: ${{ vars.PUBLISH_ENABLED }}
           # Used only as a fallback if Trusted Publishing is not configured.
           # With npm Trusted Publishing (OIDC) no token is needed; leave unset.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
