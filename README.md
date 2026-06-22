@@ -1,6 +1,7 @@
 # MilkyWay Payments SDK for TypeScript
 
 [![npm](https://img.shields.io/npm/v/@bankplanet9/milkyway-payments.svg?logo=npm)](https://www.npmjs.com/package/@bankplanet9/milkyway-payments)
+[![Downloads](https://img.shields.io/npm/dm/@bankplanet9/milkyway-payments.svg?logo=npm)](https://www.npmjs.com/package/@bankplanet9/milkyway-payments)
 [![CI](https://github.com/bankplanet9/milkyway-typescript-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/bankplanet9/milkyway-typescript-sdk/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
