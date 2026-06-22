@@ -57,10 +57,13 @@ jobs:
           fetch-depth: 0 # semantic-release needs full history + tags
 
       - name: Setup Node
+        # No registry-url here on purpose: it writes an ~/.npmrc with a token
+        # placeholder + always-auth, which forces token auth and blocks OIDC
+        # (ENEEDAUTH). Trusted Publishing needs a clean npmrc, id-token: write,
+        # npm >= 11.5.1, and a configured trusted publisher.
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Upgrade npm for OIDC trusted publishing
@@ -77,6 +80,3 @@ jobs:
           # Gates the npm publish step inside publishCmd. Set the repo variable
           # PUBLISH_ENABLED=true once npm Trusted Publishing is configured.
           PUBLISH_ENABLED: ${{ vars.PUBLISH_ENABLED }}
-          # Used only as a fallback if Trusted Publishing is not configured.
-          # With npm Trusted Publishing (OIDC) no token is needed; leave unset.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
