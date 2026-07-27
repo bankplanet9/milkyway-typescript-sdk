@@ -13,6 +13,8 @@ export type {
   CancelResult,
   PollOptions,
   DecimalInput,
+  Destination,
+  ServiceCapability,
 } from "./models.js";
 export {
   MilkywayApiError,
