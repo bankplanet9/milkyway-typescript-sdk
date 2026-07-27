@@ -83,6 +83,37 @@ export interface CancelResult {
   status: TransactionStatus;
 }
 
+/**
+ * A payout capability a destination bank offers under one of its services, as
+ * returned by the discovery catalog. The service's JSON Schema is not included
+ * here — fetch it with {@link MilkywayPaymentsClient.serviceSchema}.
+ */
+export interface ServiceCapability {
+  /** Service id (e.g. `card-payout`). */
+  service_id: string;
+  /** How the recipient is paid out (e.g. `card`, `account`, `wallet`). */
+  payout_method: string;
+  /** Recipient identifier kind the service expects, when advertised. */
+  recipient?: string;
+  /** Currencies the service can pay out in (ISO-4217), when advertised. */
+  payout_currencies?: string[];
+}
+
+/**
+ * A reachable destination bank in the discovery catalog, together with the
+ * services it exposes for payouts.
+ */
+export interface Destination {
+  /** Destination (recipient) bank id. */
+  third_party_id: string;
+  /** Human-readable partner name, when advertised. */
+  partner_name?: string;
+  /** Destination country (ISO 3166-1 alpha-2), when advertised. */
+  country?: string;
+  /** Payout capabilities the destination offers. */
+  services: ServiceCapability[];
+}
+
 /** Controls {@link MilkywayPaymentsClient.waitForCompletion} polling. */
 export interface PollOptions {
   /** Delay before the first poll, in ms. Default 1000. */

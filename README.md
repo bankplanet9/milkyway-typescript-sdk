@@ -80,6 +80,32 @@ console.log(`Final status: ${TransactionStatus[result.status]}`);
 this package as `Decimal`). Use `.toString()`, `.toFixed()`, `.plus()`, etc.;
 never coerce them through `Number()` if you care about precision.
 
+## Discovery
+
+Before quoting or paying, discover which destination banks are reachable and
+what payout services they expose. Both discovery endpoints are read-only `GET`s.
+
+```ts
+// List every reachable destination, or filter by country
+// (ISO 3166-1 alpha-2, case-insensitive).
+const destinations = await client.discovery("TJ");
+for (const d of destinations) {
+  console.log(`${d.partner_name ?? d.third_party_id} (${d.country ?? "?"})`);
+  for (const s of d.services) {
+    console.log(`  ${s.service_id} via ${s.payout_method} → ${s.payout_currencies?.join(", ") ?? "any"}`);
+  }
+}
+
+// Fetch the JSON Schema a service validates its `data` payload against.
+const schema = await client.serviceSchema("bank-beta", "card-payout");
+console.log(schema.properties);
+```
+
+`discovery()` returns the `Destination[]` directly (the `{ destinations }`
+wrapper is unwrapped for you). `serviceSchema()` returns the raw Draft-2020 JSON
+Schema as a `Record<string, unknown>` — use it to build or validate the
+service-specific `data` you pass to `precheck` / `pay`.
+
 ## Money precision
 
 The Payments API encodes money as JSON **numbers**. `JSON.parse` would coerce

@@ -5,6 +5,7 @@ import { parseJson, stringifyJson } from "./json.js";
 import type {
   CancelResult,
   DecimalInput,
+  Destination,
   PayRequest,
   PollOptions,
   PostcheckResult,
@@ -121,6 +122,45 @@ export class MilkywayPaymentsClient {
       method: "POST",
       path: `${PAYMENTS_PATH}/cancel`,
       jsonBody: body,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * Lists reachable destination banks and the payout services they expose.
+   * Pass `country` (ISO 3166-1 alpha-2, case-insensitive) to filter the catalog
+   * to a single country; omit it to list every destination.
+   */
+  async discovery(country?: string, options: RequestOptions = {}): Promise<Destination[]> {
+    const hasCountry = !!country && country.trim().length > 0;
+    const path = hasCountry
+      ? `${PAYMENTS_PATH}/discovery?country=${encodeURIComponent(country as string)}`
+      : `${PAYMENTS_PATH}/discovery`;
+    const result = await this.sendForJson<{ destinations?: Destination[] }>({
+      method: "GET",
+      path,
+      signal: options.signal,
+    });
+    return result.destinations ?? [];
+  }
+
+  /**
+   * Fetches the raw Draft-2020 JSON Schema for a destination's service — the
+   * schema the service-specific `data` payload is validated against.
+   */
+  async serviceSchema(
+    thirdPartyId: string,
+    serviceId: string,
+    options: RequestOptions = {},
+  ): Promise<Record<string, unknown>> {
+    requireArg(thirdPartyId, "thirdPartyId");
+    requireArg(serviceId, "serviceId");
+    const path =
+      `${PAYMENTS_PATH}/discovery/${encodeURIComponent(thirdPartyId)}` +
+      `/${encodeURIComponent(serviceId)}/schema`;
+    return this.sendForJson<Record<string, unknown>>({
+      method: "GET",
+      path,
       signal: options.signal,
     });
   }
