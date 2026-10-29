@@ -15,7 +15,14 @@ export type {
   DecimalInput,
   Destination,
   ServiceCapability,
+  PartyInfo,
+  PartyName,
+  PartyAddress,
+  PartyProfile,
+  PartyRequirements,
+  PartyFieldPath,
 } from "./models.js";
+export { PartyType, IdentityDocumentType } from "./models.js";
 export {
   MilkywayApiError,
   MilkywayValidationError,

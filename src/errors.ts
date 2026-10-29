@@ -14,24 +14,34 @@ export class MilkywayApiError extends Error {
   /** Raw response body, useful for diagnostics when no structured error was parsed. */
   readonly responseBody?: string;
 
+  /**
+   * The request field at fault on a field-level 400, by its JSON name or path
+   * (e.g. `amount_credit`, `sender_info.date_of_birth`). Absent otherwise.
+   */
+  readonly field?: string;
+
   constructor(
     statusCode: number,
     message: string,
-    options?: { responseBody?: string; cause?: unknown },
+    options?: { responseBody?: string; cause?: unknown; field?: string },
   ) {
     super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = new.target.name;
     this.statusCode = statusCode;
     this.responseBody = options?.responseBody;
+    this.field = options?.field;
     // Restore prototype chain for instanceof across transpilation targets.
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-/** HTTP 400 — request validation failed (bad amount, missing field, unresolvable FX rate). */
+/**
+ * HTTP 400 — request validation failed (bad amount, missing field, unresolvable FX rate).
+ * `field` names the request field at fault when the server reports one.
+ */
 export class MilkywayValidationError extends MilkywayApiError {
-  constructor(message: string, responseBody?: string) {
-    super(400, message, { responseBody });
+  constructor(message: string, responseBody?: string, field?: string) {
+    super(400, message, { responseBody, field });
   }
 }
 
@@ -75,7 +85,7 @@ export function toApiError(status: number, body: string): MilkywayApiError {
   const message = extractErrorMessage(body) ?? `Request failed with status ${status}.`;
   switch (status) {
     case 400:
-      return new MilkywayValidationError(message, body);
+      return new MilkywayValidationError(message, body, extractErrorField(body));
     case 401:
       return new MilkywayAuthError(message, { responseBody: body });
     case 402:
@@ -105,4 +115,17 @@ export function extractErrorMessage(body: string): string | undefined {
     // Non-JSON body — use it as-is.
     return body.trim();
   }
+}
+
+/** Pulls the `field` of a structured `{ "error": "...", "field": "..." }` body. */
+export function extractErrorField(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed && typeof parsed === "object" && typeof parsed.field === "string") {
+      return parsed.field;
+    }
+  } catch {
+    // Non-JSON body — no field.
+  }
+  return undefined;
 }

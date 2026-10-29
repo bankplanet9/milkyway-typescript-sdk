@@ -18,8 +18,9 @@ Batteries included:
   a `pay` without an `Idempotency-Key` is never auto-retried.
 - **Exact-decimal money** via [decimal.js](https://github.com/MikeMcl/decimal.js/)
   — monetary fields never round-trip through a lossy float64.
-- **Typed models & errors** — status is an `enum`, and each HTTP error maps to a
-  specific error class carrying `statusCode` + the server message.
+- **Typed models & errors** — status is an `enum`, the payer and beneficiary are
+  typed `PartyInfo` objects, and each HTTP error maps to a specific error class
+  carrying `statusCode`, the server message and the field at fault.
 - **Zero runtime deps beyond `decimal.js`** — uses the built-in `fetch`
   (Node 18+); a custom `fetch` is injectable for testing.
 - Ships **ESM + CommonJS + type declarations**. Targets **Node 18+**.
@@ -33,7 +34,13 @@ npm install @bankplanet9/milkyway-payments
 ## Quick start
 
 ```ts
-import { MilkywayPaymentsClient, TransactionStatus } from "@bankplanet9/milkyway-payments";
+import {
+  IdentityDocumentType,
+  MilkywayPaymentsClient,
+  PartyType,
+  TransactionStatus,
+  type PartyInfo,
+} from "@bankplanet9/milkyway-payments";
 import { randomUUID } from "node:crypto";
 
 const client = new MilkywayPaymentsClient({
@@ -46,6 +53,17 @@ const client = new MilkywayPaymentsClient({
 // 1. Is the recipient bank's service online?
 await client.healthcheck("bank-beta", "card-payout");
 
+// The payer and the beneficiary, in the canonical model. The service's
+// `party_profile` from discovery says which fields its recipient bank requires.
+const sender: PartyInfo = {
+  party_type: PartyType.Natural,
+  name: { first: "Ivan", last: "Petrov", full: "Petrov Ivan Sergeevich" },
+  date_of_birth: "1990-04-18",
+  identity_document_type: IdentityDocumentType.Passport,
+  identity_document_number: "AB1234567",
+};
+const recipient: PartyInfo = { party_type: PartyType.Natural, name: { full: "Karimov Ali" } };
+
 // 2. Quote the payment (FX markup + commission applied here).
 const quote = await client.precheck({
   third_party_id_debit: "bank-beta",
@@ -53,6 +71,8 @@ const quote = await client.precheck({
   recipient_id: "recipient-9999",
   amount_credit: "100.00", // string | number | Decimal — kept exact
   currency_credit: "USD",
+  sender_info: sender,
+  recipient_info: recipient,
 });
 console.log(`Rate ${quote.rate}, debit ${quote.amount_debit} ${quote.currency_debit}, commission ${quote.commission}`);
 
@@ -65,7 +85,8 @@ const transactionId = await client.pay(
     recipient_id: "recipient-9999",
     amount_credit: "100.00",
     currency_credit: "USD",
-    data: { passport: "AA1234567" },
+    sender_info: sender,
+    recipient_info: recipient,
   },
   { idempotencyKey: randomUUID() },
 );
@@ -93,18 +114,60 @@ for (const d of destinations) {
   console.log(`${d.partner_name ?? d.third_party_id} (${d.country ?? "?"})`);
   for (const s of d.services) {
     console.log(`  ${s.service_id} via ${s.payout_method} → ${s.payout_currencies?.join(", ") ?? "any"}`);
+    // Which sender_info / recipient_info fields the recipient bank requires.
+    console.log(`  sender needs ${s.party_profile?.sender_info?.required?.join(", ") ?? "nothing"}`);
   }
 }
 
-// Fetch the JSON Schema a service validates its `data` payload against.
+// Fetch the JSON Schema of a service's non-identity `data` extras.
 const schema = await client.serviceSchema("bank-beta", "card-payout");
 console.log(schema.properties);
 ```
 
 `discovery()` returns the `Destination[]` directly (the `{ destinations }`
-wrapper is unwrapped for you). `serviceSchema()` returns the raw Draft-2020 JSON
-Schema as a `Record<string, unknown>` — use it to build or validate the
-service-specific `data` you pass to `precheck` / `pay`.
+wrapper is unwrapped for you). Each service's `party_profile` says which
+`sender_info` / `recipient_info` fields its recipient bank requires and accepts
+(see [Payer and beneficiary](#payer-and-beneficiary)). `serviceSchema()` returns
+the raw Draft-2020 JSON Schema of the service's non-identity `data` extras as a
+`Record<string, unknown>` — most services take none.
+
+## Payer and beneficiary
+
+The identity of your customer (the payer) and of the beneficiary travels in
+`sender_info` and `recipient_info` on `precheck` and `pay` — two `PartyInfo`
+objects in one canonical model (FATF Travel Rule / ISO 20022 / IVMS101), the
+same for every recipient bank and service. You map your customer data to it
+once; each bank's connector converts it to that bank's own format. The account,
+card or phone stays in `sender_id` / `recipient_id`.
+
+| Field | Format |
+| --- | --- |
+| `party_type` | `"natural"` (`PartyType.Natural`, required). `"legal"` exists in the model but the API refuses it for now. |
+| `name.first`, `name.last`, `name.full` | Text. `full` is the name as in the document, family name first, with a patronymic if any. |
+| `date_of_birth` | ISO 8601 date, `YYYY-MM-DD`. |
+| `identity_document_type` | `passport`, `national_id`, `driver_license`, `residence_permit`, `tax_id`, `social_security` or `other` (`IdentityDocumentType.*`). Required with `identity_document_number`. |
+| `identity_document_number` | Series and number together, as in the document. |
+| `identity_document_country`, `country_of_residence` | ISO 3166-1 alpha-2, upper case (`TJ`). |
+| `address` | `country` (alpha-2, required when `address` is sent), `city`, `street`, `building`, `postal_code`, and `line` — up to 7 free-text lines. |
+
+Every field except `party_type` is optional. The SDK sends only these keys (the
+API refuses any other) and leaves out empty values, including an empty `name` or
+`address`. Text values are at most 256 characters.
+
+Which fields a service needs is set by its recipient bank and published as the
+service's `party_profile` in `discovery()`: `required` and `accepted` field paths
+(`"name.first"`, `"date_of_birth"`, …) for each side, and, when the bank takes
+only some document kinds, `identity_document_types`. Send the fields you have;
+fields the bank does not use are ignored. A missing required field or an invalid
+value is refused with a `MilkywayValidationError` whose `field` names it by its
+path (e.g. `sender_info.date_of_birth`).
+
+**Never put identity in `data`** (no sender name, birthday, passport or document
+number there) — the API does not read it from `data`. `data` carries only a
+service's non-identity extras; `serviceSchema()` lists them. The browsable
+registry of banks, services, party profiles and `data` fields is the
+[MilkyWay Handbook](https://docs.planet9.ae/site/milkyway-handbook/en/) (section
+**Services**).
 
 ## Money precision
 
@@ -133,15 +196,17 @@ retried (subject to the retry rules below).
 ## Errors
 
 All API errors are subclasses of `MilkywayApiError` (carrying `statusCode` and
-the server's message in `.message`, plus the raw `.responseBody`):
+the server's message in `.message`, plus the raw `.responseBody`). On a
+field-level 400, `.field` names the request field at fault — e.g.
+`amount_credit`, or a party field by its path such as `sender_info.date_of_birth`:
 
 | HTTP | Error class | Meaning |
 | --- | --- | --- |
-| 400 | `MilkywayValidationError` | Bad request (invalid amount, missing field, unresolvable FX rate). |
+| 400 | `MilkywayValidationError` | Bad request (invalid amount, missing field). |
 | 401 | `MilkywayAuthError` | Token missing/invalid (also thrown if token acquisition fails). |
 | 402 | `MilkywayExposureBlockedError` | Payment would breach a block-action exposure limit. |
 | 404 | `MilkywayNotFoundError` | Transaction not found or not owned by your institution. |
-| 5xx | `MilkywayServiceUnavailableError` | API or downstream recipient unavailable (retried automatically first). |
+| 5xx | `MilkywayServiceUnavailableError` | API or downstream recipient unavailable, or the recipient bank quoted no usable FX rate for a cross-currency payment (retried automatically first). |
 
 ```ts
 import { MilkywayExposureBlockedError } from "@bankplanet9/milkyway-payments";
