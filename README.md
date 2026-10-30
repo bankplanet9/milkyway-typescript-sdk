@@ -195,37 +195,85 @@ retried (subject to the retry rules below).
 
 ## Errors
 
-All API errors are subclasses of `MilkywayApiError` (carrying `statusCode` and
-the server's message in `.message`, plus the raw `.responseBody`). On a
-field-level 400, `.field` names the request field at fault — e.g.
-`amount_credit`, or a party field by its path such as `sender_info.date_of_birth`:
+All API errors are subclasses of `MilkywayApiError` (carrying `statusCode`,
+the server's message in `.message`, the structured `error` value in
+`.errorCode`, plus the raw `.responseBody`). On a field-level 400, `.field`
+names the request field at fault — e.g. `amount_credit`, `currency_credit`,
+`recipient_id` (the recipient bank reported it invalid: `ErrRecipientInvalid`),
+or a party field by its path such as `sender_info.date_of_birth`:
 
 | HTTP | Error class | Meaning |
 | --- | --- | --- |
-| 400 | `MilkywayValidationError` | Bad request (invalid amount, missing field). |
+| 400 | `MilkywayValidationError` | Bad request (invalid amount, missing field, recipient invalid at the bank). |
 | 401 | `MilkywayAuthError` | Token missing/invalid (also thrown if token acquisition fails). |
 | 402 | `MilkywayExposureBlockedError` | Payment would breach a block-action exposure limit. |
 | 404 | `MilkywayNotFoundError` | Transaction not found or not owned by your institution. |
-| 5xx | `MilkywayServiceUnavailableError` | API or downstream recipient unavailable, or the recipient bank quoted no usable FX rate for a cross-currency payment (retried automatically first). |
+| 422 | `MilkywayPaymentRejectedError` | The recipient bank refused the payment on its merits (`ErrPaymentRejected`). Not retried — repeating it will not change the answer. Nothing was created. |
+| 502 | `MilkywayRecipientBankError` | The recipient bank's connector failed in a way MilkyWay could not classify (`ErrRecipientBankError`). Nothing was created. Extends `MilkywayServiceUnavailableError`. |
+| 5xx | `MilkywayServiceUnavailableError` | API or downstream recipient unavailable, or the recipient bank quoted no usable FX rate for a cross-currency payment. On a 503 `.serviceId` / `.thirdPartyId` name the failed recipient service. |
+
+Precheck and pay can answer 422 and 502; cancel can answer 502 and 503 (the
+payment is unchanged). All 5xx — including 502 — are retried automatically
+first (see below); 4xx — including 422 — never are.
 
 ```ts
-import { MilkywayExposureBlockedError } from "@bankplanet9/milkyway-payments";
+import {
+  MilkywayExposureBlockedError,
+  MilkywayPaymentRejectedError,
+  MilkywayServiceUnavailableError,
+} from "@bankplanet9/milkyway-payments";
 
 try {
   await client.pay(req, { idempotencyKey: key });
 } catch (err) {
-  if (err instanceof MilkywayExposureBlockedError) {
+  if (err instanceof MilkywayPaymentRejectedError) {
+    // the recipient bank declined — do not resubmit as-is
+  } else if (err instanceof MilkywayExposureBlockedError) {
     // handle the exposure block specifically
+  } else if (err instanceof MilkywayServiceUnavailableError) {
+    // also catches MilkywayRecipientBankError (502); err.serviceId names the service on a 503
   }
   throw err;
 }
 ```
 
+### Failure reasons on a payment
+
+When a payment ends `Failed` (or a cancellation is refused), `postcheck` /
+`waitForCompletion` return the recipient bank's reason as a **code** in
+`error` — never the bank's own text. Compare it with `StatusReason`; the field
+stays a plain `string`, so keep a default branch for codes added later:
+
+```ts
+import { StatusReason, TransactionStatus } from "@bankplanet9/milkyway-payments";
+
+const result = await client.waitForCompletion(txId);
+if (result.status === TransactionStatus.Failed) {
+  switch (result.error) {
+    case StatusReason.RecipientNotFound:
+    case StatusReason.RecipientInvalid:
+      // fix the recipient and submit a new payment
+      break;
+    case StatusReason.PaymentRejected:
+    default:
+      // declined by the recipient bank
+  }
+}
+```
+
+| `StatusReason` | Code |
+| --- | --- |
+| `PaymentRejected` | `ErrPaymentRejected` |
+| `RecipientNotFound` | `ErrRecipientNotFound` |
+| `RecipientInvalid` | `ErrRecipientInvalid` |
+| `ServiceUnavailable` | `ErrServiceUnavailable` |
+| `PaymentCannotBeCanceled` | `ErrPaymentCannotBeCanceled` |
+
 ## Retries & idempotency
 
 Transient failures (HTTP 5xx, 408, network/timeout) are retried automatically
 with exponential backoff + full jitter, tunable via `maxRetries` (default 3) and
-`retryBaseDelayMs` (default 500). Deterministic errors (400/401/402/404) are
+`retryBaseDelayMs` (default 500). Deterministic errors (400/401/402/404/422) are
 never retried.
 
 **`pay` is only auto-retried when you supply an `idempotencyKey`** — without one,
