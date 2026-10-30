@@ -69,7 +69,15 @@ export class MilkywayPaymentsClient {
     return result.body;
   }
 
-  /** Quotes a prospective payment (rate + commission), without creating one. */
+  /**
+   * Quotes a prospective payment (rate + commission), without creating one.
+   *
+   * @throws {MilkywayValidationError} 400; `field` names the field at fault
+   *   (e.g. `recipient_id` when the recipient bank reports `ErrRecipientInvalid`).
+   * @throws {MilkywayPaymentRejectedError} 422 — the recipient bank refused it.
+   * @throws {MilkywayRecipientBankError} 502 — the recipient bank's connector failed.
+   * @throws {MilkywayServiceUnavailableError} 503 — the recipient service is unavailable.
+   */
   async precheck(request: PrecheckRequest, options: RequestOptions = {}): Promise<PrecheckResult> {
     const body = stringifyJson(toWireRequest(request));
     return this.sendForJson<PrecheckResult>({
@@ -86,6 +94,13 @@ export class MilkywayPaymentsClient {
    * Supply `idempotencyKey` to make the call safe to auto-retry on transient
    * failures. Without one, the SDK sends the request exactly once (no retries)
    * to avoid duplicate payments.
+   *
+   * @throws {MilkywayValidationError} 400; `field` names the field at fault
+   *   (e.g. `recipient_id` when the recipient bank reports `ErrRecipientInvalid`).
+   * @throws {MilkywayExposureBlockedError} 402 — a block-action exposure limit.
+   * @throws {MilkywayPaymentRejectedError} 422 — the recipient bank refused it; never retried.
+   * @throws {MilkywayRecipientBankError} 502 — the recipient bank's connector failed.
+   * @throws {MilkywayServiceUnavailableError} 503 — the recipient service is unavailable.
    */
   async pay(
     request: PayRequest,
@@ -116,7 +131,14 @@ export class MilkywayPaymentsClient {
     });
   }
 
-  /** Requests cancellation of a transaction, returning the resulting status. */
+  /**
+   * Requests cancellation of a transaction, returning the resulting status.
+   *
+   * @throws {MilkywayApiError} 403 (`ErrPaymentCannotBeCanceled`) or 409; the status is unchanged.
+   * @throws {MilkywayNotFoundError} 404 — not found or not yours.
+   * @throws {MilkywayRecipientBankError} 502 — the recipient bank's connector failed.
+   * @throws {MilkywayServiceUnavailableError} 503 — the recipient bank cannot be reached.
+   */
   async cancel(transactionId: number, options: RequestOptions = {}): Promise<CancelResult> {
     const body = stringifyJson({ transaction_id: transactionId });
     return this.sendForJson<CancelResult>({

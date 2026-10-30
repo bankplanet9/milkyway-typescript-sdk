@@ -229,7 +229,12 @@ export interface PostcheckResult {
   transaction_id: number;
   /** Lifecycle status of the transaction. */
   status: TransactionStatus;
-  /** Failure detail; present only when the payment failed. */
+  /**
+   * The code of the recipient bank's reason for a terminal outcome, when it gave
+   * one — one of `StatusReason` (e.g. `ErrPaymentRejected`), never the
+   * bank's own text. Typed `string` so codes added later still arrive. Absent
+   * when no reason was given.
+   */
   error?: string;
 }
 
