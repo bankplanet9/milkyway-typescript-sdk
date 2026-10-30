@@ -6,6 +6,7 @@ import type {
   CancelResult,
   DecimalInput,
   Destination,
+  PartyInfo,
   PayRequest,
   PollOptions,
   PostcheckResult,
@@ -70,7 +71,7 @@ export class MilkywayPaymentsClient {
 
   /** Quotes a prospective payment (rate + commission), without creating one. */
   async precheck(request: PrecheckRequest, options: RequestOptions = {}): Promise<PrecheckResult> {
-    const body = stringifyJson(normalizeMoneyRequest(request));
+    const body = stringifyJson(toWireRequest(request));
     return this.sendForJson<PrecheckResult>({
       method: "POST",
       path: `${PAYMENTS_PATH}/precheck`,
@@ -90,7 +91,7 @@ export class MilkywayPaymentsClient {
     request: PayRequest,
     options: RequestOptions & { idempotencyKey?: string } = {},
   ): Promise<number> {
-    const body = stringifyJson(normalizeMoneyRequest(request));
+    const body = stringifyJson(toWireRequest(request));
     const headers: Record<string, string> = {};
     const hasKey = !!options.idempotencyKey && options.idempotencyKey.length > 0;
     if (hasKey) headers["Idempotency-Key"] = options.idempotencyKey as string;
@@ -222,11 +223,63 @@ function requireArg(value: string, name: string): void {
   if (!value || value.trim().length === 0) throw new TypeError(`${name} is required.`);
 }
 
-/** Coerces money inputs (number/string) into {@link Decimal} for exact wire encoding. */
-function normalizeMoneyRequest<T extends { amount_credit: DecimalInput }>(
-  request: T,
-): T & { amount_credit: Decimal } {
-  return { ...request, amount_credit: toDecimal(request.amount_credit) };
+/**
+ * Prepares a precheck/pay request for the wire: coerces money inputs
+ * (number/string) into {@link Decimal} for exact encoding, and reduces the
+ * party objects to their canonical keys.
+ */
+function toWireRequest<
+  T extends { amount_credit: DecimalInput; sender_info?: PartyInfo; recipient_info?: PartyInfo },
+>(request: T): Record<string, unknown> {
+  const wire: Record<string, unknown> = { ...request, amount_credit: toDecimal(request.amount_credit) };
+  if (request.sender_info) wire.sender_info = toWireParty(request.sender_info);
+  if (request.recipient_info) wire.recipient_info = toWireParty(request.recipient_info);
+  return wire;
+}
+
+const PARTY_KEYS = [
+  "party_type",
+  "name",
+  "date_of_birth",
+  "identity_document_type",
+  "identity_document_number",
+  "identity_document_country",
+  "country_of_residence",
+  "address",
+] as const;
+const PARTY_NESTED_KEYS: Partial<Record<string, readonly string[]>> = {
+  name: ["first", "last", "full"],
+  address: ["country", "city", "street", "building", "postal_code", "line"],
+};
+
+/**
+ * The API refuses keys outside the party model, so only the canonical keys are
+ * copied, and empty values (including an empty `name` or `address`) are left
+ * out.
+ */
+function toWireParty(party: PartyInfo): Record<string, unknown> {
+  return pickNonEmpty(party, PARTY_KEYS, PARTY_NESTED_KEYS);
+}
+
+function pickNonEmpty(
+  source: object,
+  keys: readonly string[],
+  nestedKeys: Partial<Record<string, readonly string[]>> = {},
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    let value = (source as Record<string, unknown>)[key];
+    const subKeys = nestedKeys[key];
+    if (subKeys && value && typeof value === "object") value = pickNonEmpty(value, subKeys);
+    if (!isEmpty(value)) out[key] = value;
+  }
+  return out;
+}
+
+function isEmpty(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return typeof value === "object" && Object.keys(value).length === 0;
 }
 
 function toDecimal(value: DecimalInput): Decimal {
