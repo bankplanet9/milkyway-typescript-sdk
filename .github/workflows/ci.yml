@@ -97,9 +97,23 @@ jobs:
       contents: read
       id-token: write # mint the OIDC token for trusted publishing + provenance
     steps:
+      - name: Accept only a released tag
+        # Only a semantic-release tag (vX.Y.Z) may reach npm: a branch or SHA with
+        # that name must not be published under the package.
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$TAG is not a vX.Y.Z tag"; exit 1; }
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: The tag is on main
+        env:
+          TAG: ${{ inputs.tag }}
+        run: git merge-base --is-ancestor "refs/tags/$TAG" origin/main || { echo "::error::$TAG is not reachable from main"; exit 1; }
 
       - name: Setup Node
         # No registry-url, for the same reason as in release: it would force token auth.
@@ -112,14 +126,15 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Install
-        run: npm ci
+        # No lifecycle scripts while the job can mint a publish token.
+        run: npm ci --ignore-scripts
 
       - name: Set the released version
         # package.json stays at its placeholder in git; semantic-release writes the
         # version only into its own checkout.
         env:
           TAG: ${{ inputs.tag }}
-        run: npm version "${TAG#v}" --no-git-tag-version
+        run: npm version "${TAG#v}" --no-git-tag-version --ignore-scripts
 
       - name: Build and publish
-        run: npm run build && npm publish --provenance --access public
+        run: npm run build && npm publish --provenance --access public --ignore-scripts
