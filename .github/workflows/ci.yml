@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to npm, e.g. v1.2.0
+        required: true
 
 jobs:
   build-test:
@@ -80,3 +85,41 @@ jobs:
           # Gates the npm publish step inside publishCmd. Set the repo variable
           # PUBLISH_ENABLED=true once npm Trusted Publishing is configured.
           PUBLISH_ENABLED: ${{ vars.PUBLISH_ENABLED }}
+
+  publish-tag:
+    # Publishes a tag that semantic-release already released but npm never got (the
+    # tag is cut before the publish step, so a failed publish is not retried by a
+    # later push). It lives in this workflow, not a separate one, so the single npm
+    # Trusted Publisher entry (workflow ci.yml) covers both paths.
+    if: github.event_name == 'workflow_dispatch' && vars.PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token for trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Node
+        # No registry-url, for the same reason as in release: it would force token auth.
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Install
+        run: npm ci
+
+      - name: Set the released version
+        # package.json stays at its placeholder in git; semantic-release writes the
+        # version only into its own checkout.
+        env:
+          TAG: ${{ inputs.tag }}
+        run: npm version "${TAG#v}" --no-git-tag-version
+
+      - name: Build and publish
+        run: npm run build && npm publish --provenance --access public
