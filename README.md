@@ -196,8 +196,9 @@ retried (subject to the retry rules below).
 ## Errors
 
 All API errors are subclasses of `MilkywayApiError` (carrying `statusCode`,
-the server's message in `.message`, the structured `error` value in
-`.errorCode`, plus the raw `.responseBody`). On a field-level 400, `.field`
+the server's message in `.message`, its leading `Err…` code in `.errorCode` —
+`ErrValidationFailed` for `"ErrValidationFailed: amount_credit: …"`, absent when
+the message starts with no such code — plus the raw `.responseBody`). On a field-level 400, `.field`
 names the request field at fault — e.g. `amount_credit`, `currency_credit`,
 `recipient_id` (the recipient bank reported it invalid: `ErrRecipientInvalid`),
 or a party field by its path such as `sender_info.date_of_birth`:

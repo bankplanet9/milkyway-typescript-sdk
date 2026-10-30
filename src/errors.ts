@@ -2,9 +2,9 @@
  * Error hierarchy for the MilkyWay Payments API.
  *
  * Every API error is a {@link MilkywayApiError} carrying the HTTP `statusCode`,
- * the server's `error` message and the same value as `errorCode` when the body
- * is structured JSON. Specific status codes map to dedicated subclasses so
- * callers can branch with `instanceof`.
+ * the server's `error` message, and the message's leading `Err…` code as
+ * `errorCode`. Specific status codes map to dedicated subclasses so callers can
+ * branch with `instanceof`.
  */
 
 /** Base error for all failures returned by the MilkyWay Payments API. */
@@ -22,9 +22,10 @@ export class MilkywayApiError extends Error {
   readonly field?: string;
 
   /**
-   * The `error` value of a structured `{ "error": "..." }` body, verbatim — e.g.
-   * `ErrPaymentRejected`, `ErrRecipientBankError`, `ErrServiceUnavailable`.
-   * Absent when the body was empty or not JSON.
+   * The leading `Err…` code of the server's error message — e.g.
+   * `ErrPaymentRejected`, `ErrRecipientBankError`, or `ErrValidationFailed` for
+   * `"ErrValidationFailed: amount_credit: …"`. Absent when the message does not
+   * start with such a code; the full text stays in `message`.
    */
   readonly errorCode?: string;
 
@@ -174,9 +175,15 @@ export function extractErrorField(body: string): string | undefined {
   return extractStringProperty(body, "field");
 }
 
-/** Pulls the `error` of a structured `{ "error": "..." }` body; never the raw text. */
-function extractErrorCode(body: string | undefined): string | undefined {
-  return extractStringProperty(body, "error");
+/**
+ * The leading `Err…` identifier of the body's error message (the text before the
+ * first `:`), or undefined when the message does not start with one.
+ */
+export function extractErrorCode(body: string | undefined): string | undefined {
+  const message = body ? extractErrorMessage(body) : undefined;
+  if (!message) return undefined;
+  const code = message.split(":", 1)[0]!.trim();
+  return /^Err\w*$/.test(code) ? code : undefined;
 }
 
 function extractStringProperty(body: string | undefined, key: string): string | undefined {
