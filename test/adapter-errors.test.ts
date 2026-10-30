@@ -9,6 +9,7 @@ import {
   StatusReason,
   TransactionStatus,
 } from "../src/index.js";
+import { extractErrorCode } from "../src/errors.js";
 import { stubFetch, tokenResponse, baseOptions, type StubResponse } from "./support.js";
 
 function client(responses: StubResponse[]) {
@@ -103,6 +104,33 @@ describe("400 field", () => {
 });
 
 describe("errorCode", () => {
+  it.each([
+    ["ErrPaymentRejected", "ErrPaymentRejected"],
+    ["ErrRecipientRateUnavailable: receiving bank quoted no usable FX rate", "ErrRecipientRateUnavailable"],
+    ["ErrValidationFailed: amount_credit: 1.234 has more decimal places than USD allows (2)", "ErrValidationFailed"],
+    ["sender_info.date_of_birth: is required by the receiving bank for this service", undefined],
+    ["Err with spaces: x", undefined],
+    ["request failed", undefined],
+    ["boom", undefined],
+    ["", undefined],
+  ])("is the leading Err code of %j", (message, want) => {
+    expect(extractErrorCode(JSON.stringify({ error: message }))).toBe(want);
+  });
+
+  it("keeps the full text in message", async () => {
+    const error = "ErrRecipientRateUnavailable: receiving bank quoted no usable FX rate for USD->TJS: ErrServiceUnavailable";
+    const { client: c } = client([
+      { status: 503, body: JSON.stringify({ error, service_id: "wallet", third_party_id: "recipient-bank" }) },
+    ]);
+    const err = await c.precheck(payReq).catch((e: unknown) => e);
+    expect(err).toMatchObject({ message: error, errorCode: "ErrRecipientRateUnavailable", serviceId: "wallet" });
+  });
+
+  it("is read from a plain-text body too", () => {
+    expect(extractErrorCode("ErrServiceUnavailable")).toBe("ErrServiceUnavailable");
+    expect(extractErrorCode(undefined)).toBeUndefined();
+  });
+
   it("is absent for a non-JSON body", async () => {
     const { client: c } = client([{ status: 503, body: "upstream down" }]);
     const err = (await c.postcheck(1).catch((e: unknown) => e)) as MilkywayServiceUnavailableError;
